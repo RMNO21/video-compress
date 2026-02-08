@@ -1,5 +1,5 @@
 # video-compress
-compress video size and decrease the size to half the original size with smart algorithm 
+compress video size and decrease the size to 1/4 of the original size with smart algorithm 
 
 
 
