@@ -1,82 +1,65 @@
-import cv2
+"""
+Backward-compatibility entrypoint for Video-Compress.
+Redirects to the high-performance vectorized core engine.
+"""
+import sys
 import os
-import numpy as np
+import cv2
 
-def get_selective_mean_frame(img):
-    img_f = img.astype(np.float32)
-    up = np.roll(img_f, -1, axis=0)
-    down = np.roll(img_f, 1, axis=0)
-    left = np.roll(img_f, -1, axis=1)
-    right = np.roll(img_f, 1, axis=1)
-    
-    neighbors = [up, down, left, right]
-    mean_all = (up + down + left + right) / 4
+# Ensure local package is in sys.path
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
-    distances = [np.linalg.norm(n - mean_all, axis=2) for n in neighbors]
-    max_dist_idx = np.argmax(np.stack(distances, axis=0), axis=0)
-    
-    sum_neighbors = up + down + left + right
-    final_avg = np.zeros_like(img_f)
-    
-    for i in range(4):
-        mask = (max_dist_idx == i)
-        final_avg[mask] = (sum_neighbors[mask] - neighbors[i][mask]) / 3
-        
-    return final_avg.astype(np.uint8)
+from videocompress.core.filter import SelectiveMeanReconstructor
+from videocompress.core.checkerboard import CheckerboardMaskGenerator, apply_checkerboard_decimation
+
 
 def process_video():
-    video_path = input("Video File Path: ").strip('"')
+    video_path = input("Video File Path: ").strip('"').strip("'")
     if not os.path.exists(video_path):
-        print("Error: Video not found.")
+        print(f"Error: Video file not found: {video_path}")
         return
 
     cap = cv2.VideoCapture(video_path)
     if not cap.isOpened():
-        print("Error: Could not open video.")
+        print("Error: Could not open video stream.")
         return
 
-    width  = int(cap.get(cv2.CAP_PROP_FRAME_WIDTH))
+    width = int(cap.get(cv2.CAP_PROP_FRAME_WIDTH))
     height = int(cap.get(cv2.CAP_PROP_FRAME_HEIGHT))
-    fps    = cap.get(cv2.CAP_PROP_FPS)
+    fps = cap.get(cv2.CAP_PROP_FPS) or 30.0
     total_frames = int(cap.get(cv2.CAP_PROP_FRAME_COUNT))
 
     save_dir = os.path.dirname(video_path)
-    output_path = os.path.join(save_dir, 'processed_pixel_video.mp4')
-    
-    fourcc = cv2.VideoWriter_fourcc(*'mp4v')
+    output_path = os.path.join(save_dir, "processed_pixel_video.mp4")
+
+    # Use modern mp4v / avc1
+    fourcc = cv2.VideoWriter_fourcc(*"mp4v")
     out = cv2.VideoWriter(output_path, fourcc, fps, (width, height))
 
-    y, x = np.indices((height, width))
-    checker_mask = (x + y) % 2 == 0
+    mask = CheckerboardMaskGenerator.get_mask(height, width)
+    reconstructor = SelectiveMeanReconstructor(mode="fast")
 
-    print(f"Processing {total_frames} frames...")
-
+    print(f"\nProcessing {total_frames} frames with high-speed vectorized engine...")
     frame_count = 0
+
     while True:
         ret, frame = cap.read()
         if not ret:
             break
 
-        smart_avg = get_selective_mean_frame(frame)
-        
-        processed_frame = smart_avg.copy()
+        # Reconstruct on the fly with outlier rejection
+        reconstructed = reconstructor.reconstruct(frame, frame_count, mask=mask)
+        out.write(reconstructed)
 
-        if frame_count % 2 == 0:
-
-            processed_frame[checker_mask] = frame[checker_mask]
-        else:
-
-            processed_frame[~checker_mask] = frame[~checker_mask]
-
-        out.write(processed_frame)
         frame_count += 1
-        
-        if frame_count % 10 == 0:
-            print(f"Progress: {frame_count}/{total_frames} frames", end="\r")
+        if frame_count % 15 == 0 or frame_count == total_frames:
+            pct = (frame_count / total_frames * 100) if total_frames > 0 else 0
+            print(f"Progress: {frame_count}/{total_frames} frames ({pct:.1f}%)", end="\r")
 
     cap.release()
     out.release()
-    print(f"\nDone! Video saved at: {output_path}")
+    print(f"\n[DONE] High-performance reconstructed video saved to: {output_path}")
+
 
 if __name__ == "__main__":
     process_video()
