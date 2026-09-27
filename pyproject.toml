@@ -1,0 +1,21 @@
+[build-system]
+requires = ["setuptools>=61.0"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "video-compress"
+version = "2.0.0"
+description = "Smart spatial-temporal video compression engine, real-time player, and MPV GPU shader plugin"
+readme = "README.md"
+requires-python = ">=3.8"
+license = {text = "MIT"}
+authors = [
+    {name = "RMNO21", email = "tondroraman83@gmail.com"}
+]
+dependencies = [
+    "opencv-python>=4.8.0",
+    "numpy>=1.24.0"
+]
+
+[project.scripts]
+videocompress = "videocompress.cli:main"

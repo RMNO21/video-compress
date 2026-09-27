@@ -1,0 +1,72 @@
+//!HOOK MAIN
+//!BIND HOOKED
+//!DESC Video-Compress Real-Time Spatial-Temporal Reconstructor (GPU Shader)
+
+// Directional and Selective Mean Spatial Reconstructor for MPV
+// Executes directly on the GPU shader pipeline at native monitor refresh rates (144+ FPS)
+
+vec4 hook() {
+    vec2 pos = HOOKED_pos * HOOKED_size;
+    int x = int(floor(pos.x));
+    int y = int(floor(pos.y));
+
+    // Determine pixel coordinate parity
+    bool is_even_coord = ((x + y) % 2 == 0);
+
+    // Approximate frame parity using system playback time
+    // Even frames preserve even coords, odd frames preserve odd coords
+    int frame_idx = int(floor(time * 60.0));
+    bool is_even_frame = (frame_idx % 2 == 0);
+    bool is_valid_pixel = (is_even_frame == is_even_coord);
+
+    vec4 center = HOOKED_tex(HOOKED_pos);
+
+    // If current pixel is already a preserved native sample, keep it directly!
+    if (is_valid_pixel) {
+        return center;
+    }
+
+    // Otherwise, sample the 4 cardinal neighbors (Up, Down, Left, Right)
+    vec2 dx = vec2(HOOKED_pt.x, 0.0);
+    vec2 dy = vec2(0.0, HOOKED_pt.y);
+
+    vec4 up    = HOOKED_tex(HOOKED_pos - dy);
+    vec4 down  = HOOKED_tex(HOOKED_pos + dy);
+    vec4 left  = HOOKED_tex(HOOKED_pos - dx);
+    vec4 right = HOOKED_tex(HOOKED_pos + dx);
+
+    // Directional edge gradient calculation
+    float diff_v = distance(up.rgb, down.rgb);
+    float diff_h = distance(left.rgb, right.rgb);
+
+    // If sharp vertical edge detected, interpolate along vertical axis
+    if (diff_v < (diff_h - 0.04)) {
+        return (up + down) * 0.5;
+    }
+
+    // If sharp horizontal edge detected, interpolate along horizontal axis
+    if (diff_h < (diff_v - 0.04)) {
+        return (left + right) * 0.5;
+    }
+
+    // Selective Mean Outlier Rejection:
+    // Compute mean of all 4, find the farthest outlier, and average the other 3
+    vec4 mean4 = (up + down + left + right) * 0.25;
+
+    float d_up    = distance(up.rgb, mean4.rgb);
+    float d_down  = distance(down.rgb, mean4.rgb);
+    float d_left  = distance(left.rgb, mean4.rgb);
+    float d_right = distance(right.rgb, mean4.rgb);
+
+    float max_dist = max(max(d_up, d_down), max(d_left, d_right));
+
+    if (max_dist == d_up) {
+        return (down + left + right) / 3.0;
+    } else if (max_dist == d_down) {
+        return (up + left + right) / 3.0;
+    } else if (max_dist == d_left) {
+        return (up + down + right) / 3.0;
+    } else {
+        return (up + down + left) / 3.0;
+    }
+}
