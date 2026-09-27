@@ -166,3 +166,34 @@ class VideoPlayer:
         state = "PAUSED" if self.is_paused else "PLAYING"
         progress_text = f"Frame: {curr_frame}/{total_frames} ({pct:.1f}%) | [{state}]"
         cv2.putText(img, progress_text, (25, 90), cv2.FONT_HERSHEY_SIMPLEX, 0.48, (180, 180, 180), 1)
+
+    @classmethod
+    def play_isolated_mpv(cls, video_path: str) -> None:
+        """
+        Launches an isolated MPV playback instance with the Video-Compress GPU shader.
+        Uses --no-config so it NEVER alters or interferes with the host system's player.
+        """
+        import shutil
+        import subprocess
+
+        mpv_bin = shutil.which("mpv") or r"C:\Users\User\AppData\Local\RMN-Player\mpv.com"
+        if not os.path.exists(mpv_bin) and not shutil.which("mpv"):
+            print("[ERROR] MPV binary not found. Falling back to built-in OpenCV player.")
+            player = cls()
+            player.play(video_path)
+            return
+
+        pkg_dir = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+        shader_file = os.path.join(pkg_dir, "plugins", "mpv", "video_compress_reconstruct.hook")
+        script_file = os.path.join(pkg_dir, "plugins", "mpv", "video_compress.lua")
+
+        cmd = [
+            mpv_bin,
+            "--no-config",
+            f"--scripts={script_file}",
+            f"--glsl-shaders={shader_file}",
+            video_path,
+        ]
+        print(f"[PLAYER] Launching isolated MPV runner (0% interference with system player)...")
+        subprocess.run(cmd)
+
