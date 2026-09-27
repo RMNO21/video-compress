@@ -3,7 +3,6 @@ $scriptDir = Split-Path -Parent $MyInvocation.MyCommand.Path
 
 $destinations = @(
     "$env:APPDATA\mpv",
-    "$env:LOCALAPPDATA\RMN-Player",
     "$env:USERPROFILE\.config\mpv"
 )
 
