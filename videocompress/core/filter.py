@@ -68,15 +68,12 @@ class SelectiveMeanReconstructor:
 
         # Output frame preserves existing valid pixels
         output = frame.copy()
-        neighbors = [up, down, left, right]
+        stack_neighbors = np.stack([up, down, left, right], axis=0)
+        idx_3d = np.repeat(max_dist_idx[np.newaxis, :, :, np.newaxis], 3, axis=3)
+        outlier = np.take_along_axis(stack_neighbors, idx_3d, axis=0)[0]
 
-        # Calculate average of the 3 closest neighbors ONLY where pixels are missing
-        for i, neighbor in enumerate(neighbors):
-            active_outlier_mask = (max_dist_idx == i) & missing_mask
-            if np.any(active_outlier_mask):
-                output[active_outlier_mask] = (
-                    (sum_neighbors[active_outlier_mask] - neighbor[active_outlier_mask]) // 3
-                ).astype(np.uint8)
+        filtered = ((sum_neighbors - outlier) // 3).astype(np.uint8)
+        output[missing_mask] = filtered[missing_mask]
 
         return output
 
