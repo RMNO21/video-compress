@@ -1,10 +1,11 @@
 """
-Command-Line Interface (CLI) for Video-Compress.
-Supports encode, play, and benchmark modes.
+Command-Line Interface (CLI) for Video-Compress v2.0.
+Supports encode (Mode 1), play (Mode 2), install-plugin, and benchmark.
 """
 import argparse
 import sys
 import os
+import subprocess
 import time
 import numpy as np
 
@@ -12,6 +13,7 @@ from .modes.encoder import VideoEncoder
 from .modes.player import VideoPlayer
 from .core.filter import SelectiveMeanReconstructor, DirectionalEdgeReconstructor
 from .core.checkerboard import CheckerboardMaskGenerator
+from .core.hw_accel import HardwareEngine
 
 
 def run_benchmark(input_path: str = None) -> None:
@@ -19,6 +21,10 @@ def run_benchmark(input_path: str = None) -> None:
     print("\n========================================================")
     print("       VIDEO-COMPRESS ALGORITHMIC BENCHMARK SUITE       ")
     print("========================================================")
+
+    best_enc, codec, accel = HardwareEngine.select_best_encoder("av1")
+    print(f"Hardware Status:  {accel}")
+    print(f"Detected Encoder: {best_enc} ({codec})")
 
     resolutions = [
         ("720p (HD)", 720, 1280),
@@ -61,27 +67,42 @@ def run_benchmark(input_path: str = None) -> None:
     print("\nBenchmark completed.\n")
 
 
+def install_plugin() -> None:
+    """Launches the MPV plugin installer."""
+    pkg_dir = os.path.dirname(os.path.abspath(__file__))
+    repo_dir = os.path.dirname(pkg_dir)
+    ps_installer = os.path.join(repo_dir, "plugins", "mpv", "install_mpv_plugin.ps1")
+    if os.path.exists(ps_installer):
+        subprocess.run(["powershell.exe", "-ExecutionPolicy", "Bypass", "-File", ps_installer])
+    else:
+        print("[ERROR] Plugin installer script not found.")
+
+
 def interactive_menu() -> None:
     """Presents an interactive menu when invoked without CLI arguments."""
     while True:
         print("\n" + "=" * 55)
-        print("          🗜️  VIDEO-COMPRESS (v1.2.0)  🗜️          ")
+        print("          🗜️  VIDEO-COMPRESS (v2.0.0)  🗜️          ")
         print("=" * 55)
+        best_enc, _, accel = HardwareEngine.select_best_encoder("av1")
+        print(f"Hardware Accel: {accel} [{best_enc}]")
+        print("-" * 55)
         print("Select operational mode:")
         print("  [1] Encode & Prepare Video (Mode 1: Transform)")
         print("  [2] Real-time Interactive Player (Mode 2: Playback)")
-        print("  [3] Run Algorithmic Benchmarks")
-        print("  [4] Exit")
+        print("  [3] Install MPV / Player Plugin (GPU Shader)")
+        print("  [4] Run Algorithmic Benchmarks")
+        print("  [5] Exit")
         print("=" * 55)
 
-        choice = input("Enter choice (1-4): ").strip()
+        choice = input("Enter choice (1-5): ").strip()
 
         if choice == "1":
             path = input("Enter input video path: ").strip('"').strip("'")
             if not os.path.exists(path):
                 print(f"[ERROR] File not found: {path}")
                 continue
-            encoder = VideoEncoder(preset="balanced", filter_type="directional")
+            encoder = VideoEncoder(codec="av1", preset="balanced", filter_type="directional")
             encoder.encode(path)
 
         elif choice == "2":
@@ -93,28 +114,34 @@ def interactive_menu() -> None:
             player.play(path)
 
         elif choice == "3":
+            install_plugin()
+
+        elif choice == "4":
             run_benchmark()
 
-        elif choice in ("4", "q", "exit"):
+        elif choice in ("5", "q", "exit"):
             print("Exiting Video-Compress. Goodbye!")
             sys.exit(0)
         else:
-            print("Invalid option. Please enter 1, 2, 3, or 4.")
+            print("Invalid option. Please enter 1 to 5.")
 
 
 def main() -> None:
     parser = argparse.ArgumentParser(
-        description="Video-Compress: High-Performance Spatial-Temporal Compression & Playback Engine.",
+        description="Video-Compress: High-Performance Spatial-Temporal Compression, Playback & Plugin Suite.",
         formatter_class=argparse.RawDescriptionHelpFormatter,
         epilog="""
 Examples:
-  # Mode 1: Encode video with maximum compression
-  python -m videocompress encode input.mp4 -o compressed.mp4 --crf 26
+  # Mode 1: Encode video with hardware AV1/HEVC
+  python -m videocompress encode input.mp4 -o output.mp4 --codec av1 --crf 24
 
-  # Mode 2: Real-time playback with interactive on-the-fly reconstruction
+  # Mode 2: Real-time playback with on-the-fly reconstruction
   python -m videocompress play compressed.mp4
 
-  # Run performance benchmark suite
+  # Install MPV / RMN-Player GPU shader plugin
+  python -m videocompress install-plugin
+
+  # Run benchmark
   python -m videocompress benchmark
         """,
     )
@@ -125,9 +152,10 @@ Examples:
     enc_parser = subparsers.add_parser("encode", help="Mode 1: Transform and compress video")
     enc_parser.add_argument("input", help="Path to input video file")
     enc_parser.add_argument("-o", "--output", help="Path to output video file")
+    enc_parser.add_argument("--codec", default="av1", choices=["av1", "hevc", "h264"], help="Target video codec")
     enc_parser.add_argument("--preset", default="balanced", choices=["ultra_fast", "balanced", "max_compression"], help="Compression preset")
     enc_parser.add_argument("--filter", default="directional", choices=["directional", "selective_mean"], help="Reconstruction filter")
-    enc_parser.add_argument("--crf", type=int, default=24, help="Constant Rate Factor (18-28)")
+    enc_parser.add_argument("--crf", type=int, default=24, help="Constant Rate Factor (18-32)")
     enc_parser.add_argument("--scale", type=float, default=1.0, help="Downscale factor (e.g. 0.75)")
 
     # Play subparser
@@ -135,6 +163,9 @@ Examples:
     play_parser.add_argument("input", help="Path to video file to play")
     play_parser.add_argument("--fps", type=float, help="Target playback frame rate")
     play_parser.add_argument("--filter", default="directional", choices=["directional", "selective_mean"], help="Filter algorithm")
+
+    # Install plugin subparser
+    subparsers.add_parser("install-plugin", help="Install MPV / RMN-Player GPU shader plugin")
 
     # Benchmark subparser
     subparsers.add_parser("benchmark", help="Run algorithmic performance benchmarks")
@@ -146,11 +177,19 @@ Examples:
         return
 
     if args.command == "encode":
-        encoder = VideoEncoder(preset=args.preset, filter_type=args.filter, crf=args.crf, scale=args.scale)
+        encoder = VideoEncoder(
+            codec=args.codec,
+            preset=args.preset,
+            filter_type=args.filter,
+            crf=args.crf,
+            scale=args.scale,
+        )
         encoder.encode(args.input, args.output)
     elif args.command == "play":
         player = VideoPlayer(filter_type=args.filter)
         player.play(args.input, target_fps=args.fps)
+    elif args.command == "install-plugin":
+        install_plugin()
     elif args.command == "benchmark":
         run_benchmark()
 
